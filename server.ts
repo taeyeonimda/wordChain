@@ -18,7 +18,7 @@ app.prepare().then(() => {
   
   const io = new Server(httpServer, {
     cors: {
-      origin: '*', // In production, you should restrict this to your domain
+      origin: 'https://word-chain-five.vercel.app', // In production, you should restrict this to your domain
       methods: ['GET', 'POST'],
     },
   });
