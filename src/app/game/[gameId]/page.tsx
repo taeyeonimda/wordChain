@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState, FormEvent } from 'react';
+import { useEffect, useState, FormEvent, useRef } from 'react';
 import { useParams } from 'next/navigation';
-import { Game, Player } from '@/src/types';
+import { Game, Player } from '@/types';
 
 // API call helper
 const apiRequest = async (gameId: string, action: string, payload: object = {}) => {
@@ -30,6 +30,8 @@ export default function GamePage() {
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [isNameSet, setIsNameSet] = useState(false);
   const [error, setError] = useState('');
+  const [timeLeft, setTimeLeft] = useState(10);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
 
   // Fetch game state periodically
   useEffect(() => {
@@ -47,7 +49,7 @@ export default function GamePage() {
       }
     };
 
-    const interval = setInterval(fetchGame, 2000); // Poll every 2 seconds
+    const interval = setInterval(fetchGame, 2000);
 
     return () => clearInterval(interval);
   }, [gameId, isNameSet]);
@@ -63,6 +65,29 @@ export default function GamePage() {
     }
   }, [gameId]);
 
+  // Timer effect
+  useEffect(() => {
+    if (game?.isStarted && !game.isGameOver && game.turnStartedAt) {
+      const interval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - new Date(game.turnStartedAt).getTime()) / 1000);
+        const remaining = 10 - elapsed;
+        setTimeLeft(remaining > 0 ? remaining : 0);
+
+        if (remaining <= 0) {
+          if (game.players[game.currentPlayerIndex]?.id === playerId) {
+            apiRequest(gameId, 'timeout', { playerId });
+          }
+        }
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [game, gameId, playerId]);
+
+  // Scroll chat to bottom
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [game?.words, game?.isGameOver]);
+
   const handleJoinGame = async () => {
     if (name.trim() && gameId) {
       try {
@@ -71,7 +96,6 @@ export default function GamePage() {
         setGame(data);
         setPlayerId(data.playerId);
         setIsNameSet(true);
-        // Store player info in session storage to persist across reloads
         sessionStorage.setItem(`word-game-player-id-${gameId}`, data.playerId);
         sessionStorage.setItem(`word-game-name-${gameId}`, name);
       } catch (e: any) {
@@ -103,85 +127,90 @@ export default function GamePage() {
       }
     }
   };
-  
+
   if (!isNameSet) {
     return (
-      <div className="container mx-auto p-4 text-center">
-        <h1 className="text-2xl font-bold mb-4">Enter Your Name</h1>
-        {error && <p className="text-red-500 mb-4">{error}</p>}
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Your Name"
-          className="p-2 border rounded mb-4"
-        />
-        <button onClick={handleJoinGame} className="bg-blue-500 text-white p-2 rounded">
-          Join Game
-        </button>
+      <div className="min-h-screen bg-gray-800 text-white flex items-center justify-center font-sans">
+        <div className="bg-gray-900 p-8 rounded-2xl shadow-2xl text-center w-full max-w-sm">
+          <h1 className="text-3xl font-bold mb-6 text-indigo-400">끝말잇기</h1>
+          {error && <p className="text-red-400 mb-4 bg-red-900 p-3 rounded-lg">{error}</p>}
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Enter your name"
+            className="w-full p-3 border-2 border-gray-700 rounded-lg mb-4 bg-gray-800 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+          />
+          <button onClick={handleJoinGame} className="w-full bg-indigo-600 text-white py-3 rounded-lg hover:bg-indigo-700 font-bold text-lg transition-transform transform hover:scale-105">
+            Join Game
+          </button>
+        </div>
       </div>
     );
   }
 
   if (!game) {
-    return <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">Loading...</div>;
+    return <div className="min-h-screen bg-gray-800 text-white flex items-center justify-center">Loading game...</div>;
   }
 
   const me = game.players.find(p => p.id === playerId);
-  const isMyTurn = game.isStarted && game.players[game.currentPlayerIndex]?.id === playerId;
+  const isMyTurn = game.isStarted && !game.isGameOver && game.players[game.currentPlayerIndex]?.id === playerId;
+  const losingPlayer = game.isGameOver ? game.players[game.currentPlayerIndex] : null;
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center p-4 md:p-8">
-      <div className="w-full max-w-4xl">
-        <h1 className="text-2xl md:text-4xl font-bold text-indigo-400 mb-2">끝말잇기</h1>
-        <p className="text-gray-400 mb-2">Game ID: {game.gameId}</p>
-        {error && <p className="text-red-500 mb-4">Error: {error}</p>}
+    <div className="min-h-screen bg-gray-800 text-white font-sans flex flex-col items-center justify-center p-4">
+      <div className="w-full max-w-2xl flex flex-col items-center">
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Players List */}
-          <div className="md:col-span-1 bg-gray-800 p-4 rounded-lg">
-            <h2 className="text-xl font-semibold mb-4">Players</h2>
-            <ul>
-              {game.players.map((p, i) => (
-                <li key={p.id} className={`flex items-center justify-between p-2 rounded ${game.players[game.currentPlayerIndex]?.id === p.id ? 'bg-indigo-500' : ''}`}>
-                  <span>{p.name} {p.id === playerId && '(You)'}</span>
-                  {game.hostId === p.id && <span className="text-xs font-bold text-yellow-400">HOST</span>}
-                </li>
-              ))}
-            </ul>
-            {!game.isStarted && me?.id === game.hostId && (
-              <button onClick={handleStartGame} disabled={game.players.length < 2} className="w-full mt-4 px-4 py-2 font-bold text-white bg-green-600 rounded-md hover:bg-green-700 disabled:opacity-50">
-                Start Game
-              </button>
-            )}
-          </div>
-
-          {/* Game Board */}
-          <div className="md:col-span-2 bg-gray-800 p-4 rounded-lg">
-            <h2 className="text-xl font-semibold mb-4">Words</h2>
-            <div className="h-64 overflow-y-auto bg-gray-900 p-2 rounded mb-4">
-              {game.words.length === 0 && <p className="text-gray-500">No words yet...</p>}
-              <p className="text-lg leading-relaxed break-all">
-                {game.words.join(' → ')}
-              </p>
-            </div>
-            {game.isStarted && (
-              <form onSubmit={handleWordSubmit}>
-                <input
-                  type="text"
-                  value={word}
-                  onChange={(e) => setWord(e.target.value)}
-                  placeholder={isMyTurn ? "Your turn..." : "Waiting for other player..."}
-                  disabled={!isMyTurn}
-                  className="w-full px-3 py-2 text-white bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-600"
-                />
-                <button type="submit" disabled={!isMyTurn} className="w-full mt-2 px-4 py-2 font-bold text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:bg-gray-500">
-                  Submit Word
-                </button>
-              </form>
-            )}
-          </div>
+        {/* Word and Timer */}
+        <div className="text-center mb-8">
+          <p className="text-6xl md:text-8xl font-bold my-4 tracking-widest break-all">
+            {game.words.length > 0 ? game.words[game.words.length - 1] : "-"}
+          </p>
+          {game.isStarted && !game.isGameOver && <div className="text-5xl font-bold text-green-400">{timeLeft}</div>}
         </div>
+
+        {/* Player Slots */}
+        <div className="flex flex-row justify-center gap-4 mb-8">
+          {game.players.map((p) => (
+            <div key={p.id} className={`p-4 rounded-lg text-center w-32 transition-all ${game.players[game.currentPlayerIndex]?.id === p.id && !game.isGameOver ? 'bg-indigo-600 shadow-lg ring-2 ring-indigo-400' : 'bg-gray-700'}`}>
+              <p className="font-bold truncate">{p.name} {p.id === playerId && '(You)'}</p>
+              {game.hostId === p.id && <p className="text-xs font-bold text-yellow-400">HOST</p>}
+            </div>
+          ))}
+        </div>
+
+        {/* History */}
+        <div className="w-full bg-gray-900 p-4 rounded-2xl shadow-lg mb-4 h-48 overflow-y-auto text-sm">
+            {game.words.map((w, i) => (
+              <div key={i} className="p-2 rounded-lg bg-gray-800 mb-1">
+                <span className="font-semibold text-indigo-300">{game.players[(i) % game.players.length].name}:</span> {w}
+              </div>
+            ))}
+            {game.isGameOver && losingPlayer && (
+              <div className="p-3 rounded-lg bg-red-900 text-white font-bold text-center">
+                Game Over: {losingPlayer.name} lost!
+              </div>
+            )}
+            <div ref={chatEndRef} />
+        </div>
+
+        {/* Input */}
+        <form onSubmit={handleWordSubmit} className="w-full">
+            <input
+              type="text"
+              value={word}
+              onChange={(e) => setWord(e.target.value)}
+              placeholder={isMyTurn ? "Your turn!" : "Waiting..."}
+              disabled={!isMyTurn || game.isGameOver}
+              className="w-full p-4 text-lg text-white bg-gray-800 border-2 border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all disabled:bg-gray-700"
+            />
+        </form>
+
+        {(!game.isStarted || game.isGameOver) && me?.id === game.hostId && (
+          <button onClick={handleStartGame} disabled={game.players.length < 2} className="mt-4 px-8 py-3 font-bold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50 transition-all">
+            Start Game
+          </button>
+        )}
       </div>
     </div>
   );

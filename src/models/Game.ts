@@ -12,7 +12,9 @@ const gameSchema = new Schema<Game>({
   words: [{ type: String }],
   currentPlayerIndex: { type: Number, default: 0 },
   isStarted: { type: Boolean, default: false },
+  isGameOver: { type: Boolean, default: false },
   hostId: { type: String, required: true },
+  turnStartedAt: { type: Date, default: null },
 }, { timestamps: true });
 
 const GameModel = models.Game || model<Game>('Game', gameSchema);

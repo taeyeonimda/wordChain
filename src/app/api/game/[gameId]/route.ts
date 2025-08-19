@@ -1,8 +1,8 @@
 
 import { NextResponse } from 'next/server';
-import connectDB from '@/src/lib/mongodb';
-import GameModel from '@/src/models/Game';
-import { Player } from '@/src/types';
+import connectDB from '@/lib/mongodb';
+import GameModel from '@/models/Game';
+import { Player } from '@/types';
 
 // Helper to generate a unique ID for players
 const generatePlayerId = () => 'player_' + Math.random().toString(36).substr(2, 9);
@@ -33,6 +33,13 @@ export async function POST(request: Request, { params }: { params: { gameId: str
 
     let game = await GameModel.findOne({ gameId });
 
+    if (!game) {
+      // If game doesn't exist, only 'join_game' is a valid action
+      if (action !== 'join_game') {
+        return NextResponse.json({ message: 'Game not found' }, { status: 404 });
+      }
+    }
+
     switch (action) {
       case 'join_game': {
         const { name } = payload;
@@ -49,7 +56,7 @@ export async function POST(request: Request, { params }: { params: { gameId: str
         } else {
           // Add player if not already in the game
           if (!game.players.some((p: Player) => p.name === name)) { // Avoid duplicate names
-            if (game.players.length >= 3) {
+            if (game.players.length >= 10) { // Set player limit
               return NextResponse.json({ message: 'This game room is full.' }, { status: 403 });
             }
             game.players.push({ id: playerId, name });
@@ -68,6 +75,7 @@ export async function POST(request: Request, { params }: { params: { gameId: str
         const { playerId } = payload;
         if (game && game.hostId === playerId) {
           game.isStarted = true;
+          game.turnStartedAt = new Date(); // Start the timer for the first player
           await game.save();
         } else {
           return NextResponse.json({ message: 'Only the host can start the game.' }, { status: 403 });
@@ -86,7 +94,18 @@ export async function POST(request: Request, { params }: { params: { gameId: str
           return NextResponse.json({ message: 'Not your turn.' }, { status: 403 });
         }
 
+        // Time validation (10 seconds)
+        if (game.turnStartedAt && Date.now() - new Date(game.turnStartedAt).getTime() > 10000) {
+          return NextResponse.json({ message: 'Time is up! (10 seconds)' }, { status: 400 });
+        }
+
         // Word validation
+        if (word.length < 3) {
+          return NextResponse.json({ message: 'Word must be at least 3 characters long.' }, { status: 400 });
+        }
+        if (!/^[가-힣]+$/.test(word)) {
+          return NextResponse.json({ message: 'Word must contain only Korean characters.' }, { status: 400 });
+        }
         const lastWord = game.words[game.words.length - 1];
         if (game.words.length > 0 && !word.startsWith(lastWord.slice(-1))) {
           return NextResponse.json({ message: 'Word must start with the last letter of the previous word.' }, { status: 400 });
@@ -97,6 +116,17 @@ export async function POST(request: Request, { params }: { params: { gameId: str
 
         game.words.push(word);
         game.currentPlayerIndex = (game.currentPlayerIndex + 1) % game.players.length;
+        game.turnStartedAt = new Date(); // Reset timer for the next player
+        await game.save();
+        break;
+      }
+      case 'timeout': {
+        // This action is triggered when a player's turn times out.
+        if (!game || !game.isStarted) {
+          return NextResponse.json({ message: 'Game has not started.' }, { status: 400 });
+        }
+        
+        game.isGameOver = true;
         await game.save();
         break;
       }

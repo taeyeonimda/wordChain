@@ -9,5 +9,7 @@ export interface Game {
   words: string[];
   currentPlayerIndex: number;
   isStarted: boolean;
+  isGameOver: boolean;
   hostId: string;
+  turnStartedAt: Date | null;
 }
