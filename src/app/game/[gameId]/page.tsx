@@ -69,7 +69,7 @@ export default function GamePage() {
   useEffect(() => {
     if (game?.isStarted && !game.isGameOver && game.turnStartedAt) {
       const interval = setInterval(() => {
-        const elapsed = Math.floor((Date.now() - new Date(game.turnStartedAt).getTime()) / 1000);
+        const elapsed = Math.floor((Date.now() - new Date(game.turnStartedAt!).getTime()) / 1000);
         const remaining = 10 - elapsed;
         setTimeLeft(remaining > 0 ? remaining : 0);
 
