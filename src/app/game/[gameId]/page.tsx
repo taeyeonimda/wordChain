@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, FormEvent, useRef } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import { Game, Player } from '@/types';
 
 // API call helper
@@ -14,14 +14,25 @@ const apiRequest = async (gameId: string, action: string, payload: object = {}) 
     }
   );
   if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.message);
+    let errorMessage = 'An unknown error occurred.';
+    try {
+      const errorBody = await response.json();
+      if (errorBody && errorBody.message) {
+        errorMessage = errorBody.message;
+      } else if (typeof errorBody === 'string') {
+        errorMessage = errorBody;
+      }
+    } catch (jsonError) {
+      errorMessage = response.statusText || `Error: ${response.status}`;
+    }
+    throw new Error(errorMessage);
   }
   return response.json();
 };
 
 export default function GamePage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const gameId = params.gameId as string;
 
   const [game, setGame] = useState<Game | null>(null);
@@ -29,9 +40,22 @@ export default function GamePage() {
   const [name, setName] = useState('');
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [isNameSet, setIsNameSet] = useState(false);
+  const [isJoining, setIsJoining] = useState(false);
   const [error, setError] = useState('');
   const [timeLeft, setTimeLeft] = useState(10);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
+
+  // Auto-join game if name is in query params
+  useEffect(() => {
+    const nameFromQuery = searchParams.get('name');
+    if (nameFromQuery && !isNameSet && !isJoining) {
+      setIsJoining(true);
+      setName(nameFromQuery);
+      handleJoinGame(nameFromQuery).finally(() => {
+        setIsJoining(false);
+      });
+    }
+  }, [searchParams, isNameSet, isJoining]);
 
   // Fetch game state periodically
   useEffect(() => {
@@ -88,16 +112,16 @@ export default function GamePage() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [game?.words, game?.isGameOver]);
 
-  const handleJoinGame = async () => {
-    if (name.trim() && gameId) {
+  const handleJoinGame = async (nameToJoin: string) => {
+    if (nameToJoin.trim() && gameId) {
       try {
         setError('');
-        const data = await apiRequest(gameId, 'join_game', { name });
+        const data = await apiRequest(gameId, 'join_game', { name: nameToJoin });
         setGame(data);
         setPlayerId(data.playerId);
         setIsNameSet(true);
         sessionStorage.setItem(`word-game-player-id-${gameId}`, data.playerId);
-        sessionStorage.setItem(`word-game-name-${gameId}`, name);
+        sessionStorage.setItem(`word-game-name-${gameId}`, nameToJoin);
       } catch (e: any) {
         setError(e.message);
       }
@@ -117,6 +141,12 @@ export default function GamePage() {
   const handleWordSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (word.trim()) {
+      if (game?.isGameOver) {
+        if (word.trim().toLowerCase() === 'restart!') {
+          handleStartGame();
+        }
+        return;
+      }
       try {
         setError('');
         const data = await apiRequest(gameId, 'submit_word', { playerId, word });
@@ -129,6 +159,9 @@ export default function GamePage() {
   };
 
   if (!isNameSet) {
+    if (isJoining || searchParams.get('name')) {
+        return <div className="min-h-screen bg-gray-800 text-white flex items-center justify-center">Joining game...</div>;
+    }
     return (
       <div className="min-h-screen bg-gray-800 text-white flex items-center justify-center font-sans">
         <div className="bg-gray-900 p-8 rounded-2xl shadow-2xl text-center w-full max-w-sm">
@@ -141,7 +174,7 @@ export default function GamePage() {
             placeholder="Enter your name"
             className="w-full p-3 border-2 border-gray-700 rounded-lg mb-4 bg-gray-800 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
           />
-          <button onClick={handleJoinGame} className="w-full bg-indigo-600 text-white py-3 rounded-lg hover:bg-indigo-700 font-bold text-lg transition-transform transform hover:scale-105">
+          <button onClick={() => handleJoinGame(name)} className="w-full bg-indigo-600 text-white py-3 rounded-lg hover:bg-indigo-700 font-bold text-lg transition-transform transform hover:scale-105">
             Join Game
           </button>
         </div>
@@ -164,7 +197,7 @@ export default function GamePage() {
         {/* Word and Timer */}
         <div className="text-center mb-8">
           <p className="text-6xl md:text-8xl font-bold my-4 tracking-widest break-all">
-            {game.words.length > 0 ? game.words[game.words.length - 1] : "-"}
+            {game.isGameOver ? "user lost!" : (game.words.length > 0 ? game.words[game.words.length - 1] : "-")}
           </p>
           {game.isStarted && !game.isGameOver && <div className="text-5xl font-bold text-green-400">{timeLeft}</div>}
         </div>
@@ -200,15 +233,15 @@ export default function GamePage() {
               type="text"
               value={word}
               onChange={(e) => setWord(e.target.value)}
-              placeholder={isMyTurn ? "Your turn!" : "Waiting..."}
-              disabled={!isMyTurn || game.isGameOver}
+              placeholder={game.isGameOver ? "Type 'restart!' to play again" : (isMyTurn ? "Your turn!" : "Waiting...")}
+              disabled={!isMyTurn && !game.isGameOver}
               className="w-full p-4 text-lg text-white bg-gray-800 border-2 border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all disabled:bg-gray-700"
             />
         </form>
 
         {(!game.isStarted || game.isGameOver) && me?.id === game.hostId && (
           <button onClick={handleStartGame} disabled={game.players.length < 2} className="mt-4 px-8 py-3 font-bold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50 transition-all">
-            Start Game
+            {game.isGameOver ? "Restart Game" : "Start Game"}
           </button>
         )}
       </div>

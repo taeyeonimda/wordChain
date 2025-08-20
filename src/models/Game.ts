@@ -6,6 +6,13 @@ const playerSchema = new Schema<Player>({
   name: { type: String, required: true },
 });
 
+const gameRoundHistorySchema = new Schema({
+  words: [{ type: String }],
+  losingPlayerId: { type: String, default: null },
+  startedAt: { type: Date, required: true },
+  endedAt: { type: Date, required: true },
+});
+
 const gameSchema = new Schema<Game>({
   gameId: { type: String, required: true, unique: true, index: true },
   players: [playerSchema],
